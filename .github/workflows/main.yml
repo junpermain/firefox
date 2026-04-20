@@ -1,0 +1,49 @@
+name: Firefox Android ARM64 Build
+
+on:
+  workflow_dispatch: # 只保留手动触发，避免自动同步出问题
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360 # 最长跑 6 小时，避免中途被 kill
+
+    steps:
+      - name: 直接拉取 Firefox 官方公开源码（匿名、无权限）
+        uses: actions/checkout@v4
+        with:
+          repository: mozilla-firefox/firefox # 官方公开仓库，无需账号
+          ref: main
+          fetch-depth: 1 # 浅克隆，省空间、速度快
+
+      - name: 安装系统依赖
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential python3 python3-dev libssl-dev libffi-dev curl unzip zip openjdk-17-jdk-headless
+
+      - name: Bootstrap Android 编译环境
+        run: |
+          ./mach bootstrap --application-choice=android_arm64 --no-interactive
+
+      - name: 创建编译配置（仅 ARM64，禁用非必要功能）
+        run: |
+          cat > .mozconfig <<EOF
+          ac_add_options --target=aarch64-linux-android
+          ac_add_options --enable-optimize
+          ac_add_options --disable-debug
+          ac_add_options --disable-tests
+          ac_add_options --disable-crashreporter
+          mk_add_options MOZ_OBJDIR=obj-arm64
+          mk_add_options MOZ_MAKE_FLAGS="-j$(nproc)"
+          EOF
+
+      - name: 编译 Firefox Android
+        run: |
+          ./mach build
+          ./mach gradle fenix:assembleDebug
+
+      - name: 上传编译好的 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: firefox-android-arm64-apk
+          path: obj-arm64/dist/fenix-*-arm64-v8a.apk
